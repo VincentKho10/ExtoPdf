@@ -46,7 +46,11 @@ app.post("/generate", uploadstor.single("file"), (req, res, next) => {
   if (!req.file) {
     return res.status(400).json({ message: "file not found" });
   }
-  console.log(records)
+
+  const templatePath = path.join(__dirname, "views/checklist_pengiriman", "index.ejs")
+  
+  ejs.renderFile(templatePath)
+
   res.status(200).json({ message: "file uploaded successfully" });
 });
 
