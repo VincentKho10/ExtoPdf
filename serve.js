@@ -7,6 +7,13 @@ const puppeteer = require("puppeteer");
 const ejs = require("ejs");
 
 const { parse } = require("csv-parse/sync");
+const { create } = require("domain");
+
+const templatePath = path.join(
+  __dirname,
+  "views/checklist_pengiriman",
+  "index.ejs"
+);
 
 const fileFilter = (req, file, cb) => {
   const allowedMimeTypes = ["text/csv"];
@@ -31,6 +38,16 @@ app.use(express.urlencoded({ extended: true }));
 
 app.use("/public", express.static("public"));
 
+app.get("/generate", (req, res) => {
+  (async () => {
+    res.render(templatePath, {
+      no_pengiriman: "12134221",
+      tgl_pengiriman: "11/2/24",
+      nama_pelanggan: "ASIAN ISUZU CASTING CENTER PT.",
+    });
+  })();
+});
+
 app.get("/", (req, res) => {
   res.render("user_interface");
 });
@@ -38,6 +55,10 @@ app.get("/", (req, res) => {
 app.post("/generate", uploadstor.single("file"), (req, res, next) => {
   if (!fs.existsSync("uploads")) {
     fs.mkdirSync("uploads");
+  } else {
+    if (!fs.existsSync("uploads/result")) {
+      fs.mkdirSync("uploads/result");
+    }
   }
 
   let records = parse(req.file.buffer.toString("utf-8"), {
@@ -50,12 +71,6 @@ app.post("/generate", uploadstor.single("file"), (req, res, next) => {
     return res.status(400).json({ message: "file not found" });
   }
 
-  const templatePath = path.join(
-    __dirname,
-    "views/checklist_pengiriman",
-    "index.ejs"
-  );
-
   // console.log(records)
 
   records = records.map((v) => {
@@ -66,29 +81,43 @@ app.post("/generate", uploadstor.single("file"), (req, res, next) => {
     };
   });
 
-  records.forEach((element) => {
-    ejs.renderFile(templatePath, element, async (err, html) => {
-      if (err) {
-        console.error("Error rendering Ejs template:", err);
-        return;
-      }
+  const createPdf = async (element) => {
+    try {
+      // const element = records[0]
+      const html = await ejs.renderFile(templatePath, element);
 
       const browser = await puppeteer.launch();
       const page = await browser.newPage();
 
-      await page.setContent(html, {waitUntil: 'networkidle0'})
+      const filename = `${element.nama_pelanggan.replaceAll(
+        /[^\w\s]/g,
+        ""
+      )}-${element.tgl_pengiriman.replaceAll(/[^\w\s]/g, "")}`;
 
-      records.forEach(async element => {
-        const pdfPath = path.join(__dirname, 'uploads/result', `${element["Nama Pelanggan"]}${element["No. PO"]}${element["Tgl. Pengiriman"]}.pdf`)
-        await page.pdf({
-          path: pdfPath,
-          format: 'A4',
-        })
+      await page.setContent(html, { waitUntil: "domcontentloaded" });
 
-        console.log(`PDF generated for ${element["Nama Pelanggan"]}${element["No. PO"]}${element["Tgl. Pengiriman"]}: ${pdfPath}`)
+      const pdfPath = path.join(__dirname, "uploads/result", `${filename}.pdf`);
+      await page.pdf({
+        path: pdfPath,
+        format: "A4",
       });
-    });
-  });
+
+      console.log(`PDF generated for ${filename}: ${pdfPath}`);
+
+      await browser.close();
+    } catch (error) {
+      console.error("Error rendering Ejs template:", error);
+    }
+  };
+
+  (async () => {
+    const batchz = 5;
+
+    for (let i = 0; i < records.length; i += batchz) {
+      const tocvt = records.slice(i, i + batchz);
+      await Promise.all(tocvt.map((v) => createPdf(v)));
+    }
+  })();
 
   res.status(200).json({ message: "file uploaded successfully" });
 });
