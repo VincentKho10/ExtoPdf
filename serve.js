@@ -52,12 +52,70 @@ app.get("/", (req, res) => {
   res.render("user_interface");
 });
 
-app.post("/generate", uploadstor.single("file"), (req, res, next) => {
+const cpam3Path = "uploads/result/checklist_pengiriman/am3"
+const cpstmaPath = "uploads/result/checklist_pengiriman/sutema"
+const kpkndraPath = "uploads/result/kelengkapan_kendaraan"
+
+const createPdf = async (element,target) => {
+  try {
+    // const element = records[0]
+    const html = await ejs.renderFile(templatePath, element);
+
+    const browser = await puppeteer.launch();
+    const page = await browser.newPage();
+
+    const filename = `${element.nama_pelanggan
+      .replaceAll(/[^\w\s]/g, "")
+      .replaceAll(" ", "_")}-${element.no_pengiriman.replaceAll(
+      /[^\w\s]/g,
+      "_"
+    )}`;
+
+    await page.setContent(html, { waitUntil: "domcontentloaded" });
+
+    const pdfPath = path.join(
+      __dirname,
+      target=="am3"?"uploads/result/checklist_pengiriman/am3":"uploads/result/checklist_pengiriman/sutema",
+      `${filename}.pdf`
+    );
+
+    await page.pdf({
+      path: pdfPath,
+      format: "A4",
+    });
+
+    console.log(`PDF generated for ${filename}: ${pdfPath}`);
+
+    await browser.close();
+  } catch (error) {
+    console.error("Error rendering Ejs template:", error);
+  }
+};
+
+app.post("/generate/checklist_pengiriman", uploadstor.single("file"), (req, res, next) => {
+  
+  const { target } = req.body;
+
   if (!fs.existsSync("uploads")) {
     fs.mkdirSync("uploads");
   } else {
     if (!fs.existsSync("uploads/result")) {
       fs.mkdirSync("uploads/result");
+    }
+    if (!fs.existsSync("uploads/input")) {
+      fs.mkdirSync("uploads/input");
+    }
+    if (!fs.existsSync("uploads/result/checklist_pengiriman")) {
+      fs.mkdirSync("uploads/result/checklist_pengiriman");
+    }
+    if (!fs.existsSync(cpam3Path)) {
+      fs.mkdirSync(cpam3Path);
+    }
+    if (!fs.existsSync(cpstmaPath)) {
+      fs.mkdirSync(cpstmaPath);
+    }
+    if (!fs.existsSync(kpkndraPath)) {
+      fs.mkdirSync(kpkndraPath);
     }
   }
 
@@ -75,47 +133,18 @@ app.post("/generate", uploadstor.single("file"), (req, res, next) => {
 
   records = records.map((v) => {
     return {
-      no_pengiriman: v["No. PO"],
+      no_pengiriman: v["No. Pengiriman"],
       tgl_pengiriman: v["Tgl. Pengiriman"],
       nama_pelanggan: v["Nama Pelanggan"],
     };
   });
-
-  const createPdf = async (element) => {
-    try {
-      // const element = records[0]
-      const html = await ejs.renderFile(templatePath, element);
-
-      const browser = await puppeteer.launch();
-      const page = await browser.newPage();
-
-      const filename = `${element.nama_pelanggan.replaceAll(
-        /[^\w\s]/g,
-        ""
-      )}-${element.tgl_pengiriman.replaceAll(/[^\w\s]/g, "")}`;
-
-      await page.setContent(html, { waitUntil: "domcontentloaded" });
-
-      const pdfPath = path.join(__dirname, "uploads/result", `${filename}.pdf`);
-      await page.pdf({
-        path: pdfPath,
-        format: "A4",
-      });
-
-      console.log(`PDF generated for ${filename}: ${pdfPath}`);
-
-      await browser.close();
-    } catch (error) {
-      console.error("Error rendering Ejs template:", error);
-    }
-  };
 
   (async () => {
     const batchz = 5;
 
     for (let i = 0; i < records.length; i += batchz) {
       const tocvt = records.slice(i, i + batchz);
-      await Promise.all(tocvt.map((v) => createPdf(v)));
+      await Promise.all(tocvt.map((v) => createPdf(v,target)));
     }
   })();
 
